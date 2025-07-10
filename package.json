@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@fortawesome/fontawesome-free": "^6.7.2",
+    "framer-motion": "^12.19.1",
+    "lucide-react": "^0.523.0",
+    "react-hot-toast": "^2.5.2",
+    "react-icons": "^5.5.0",
+    "socket.io": "^4.8.1"
+  }
+}

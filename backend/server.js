@@ -52,52 +52,14 @@ io.on('connection', (socket) => {
     socket.to(room).emit('stop-typing');
   });
 
-  // ✅ Fixed: Save message to DB if it's ticket-specific
-  socket.on('send-message', async (msg) => {
+  // ✅ Fixed: only emit, no DB save here
+  socket.on('send-message', (msg) => {
     const roomId =
       msg.chatType === 'ticket' && msg.ticketId
         ? `ticket-${msg.ticketId}`
         : 'general';
 
-    // Broadcast to room
     io.to(roomId).emit('receive-message', msg);
-
-    // Save to ticket if ticketId is provided
-    if (msg.chatType === 'ticket' && msg.ticketId) {
-      try {
-        if (!mongoose.Types.ObjectId.isValid(msg.ticketId)) return;
-
-        const ticket = await Ticket.findById(msg.ticketId);
-        if (!ticket) return;
-
-        const messageObj = {
-          message: msg.content,
-          senderName: msg.senderName || 'Unknown',
-          senderRole: msg.role?.toLowerCase() || 'user',
-          timestamp: new Date(),
-          edited: false,
-          deleted: false,
-        };
-
-        if (msg.replyTo?._id) {
-          messageObj.replyTo = {
-            messageId: msg.replyTo._id,
-            messageText: msg.replyTo.content,
-            senderName: msg.replyTo.senderName || 'Unknown',
-          };
-        }
-
-        if (msg.attachment?.url) {
-          messageObj.fileUrl = msg.attachment.url;
-          messageObj.fileType = msg.attachment.type || '';
-        }
-
-        ticket.messages.push(messageObj);
-        await ticket.save();
-      } catch (err) {
-        console.error('❌ Error saving socket message to ticket:', err.message);
-      }
-    }
   });
 
   socket.on('message-read', ({ chatType, messageId, reader }) => {

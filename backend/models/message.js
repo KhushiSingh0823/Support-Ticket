@@ -37,14 +37,22 @@ const messageSchema = new mongoose.Schema(
       default: null,
     },
 
-    // 📎 Optional file attachment
+    // 📎 Optional file attachment with base64
     attachment: {
       name: { type: String, default: '' },
-      url: { type: String, default: '' },
+      base64: { type: String, default: '' }, // 👈 Changed from `url` to `base64`
     },
 
     // ✅ Read receipts
     readBy: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        at: { type: Date, default: Date.now },
+      },
+    ],
+
+    // 📬 Delivery receipts
+    deliveredTo: [
       {
         user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         at: { type: Date, default: Date.now },

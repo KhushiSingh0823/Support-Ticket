@@ -70,7 +70,8 @@ const CustomerChatModal = ({ onClose }) => {
       sender: user._id,
     };
 
-    if (attachment) {
+    // ✅ Only attach if valid file
+    if (attachment?.name && attachment?.size > 0) {
       message.attachment = {
         name: attachment.name,
         url: URL.createObjectURL(attachment),
@@ -161,7 +162,8 @@ const CustomerChatModal = ({ onClose }) => {
 
                 <p className="text-sm">{msg.content}</p>
 
-                {msg.attachment && (
+                {/* 📎 Only render if real attachment exists */}
+                {msg.attachment?.name && msg.attachment?.url && (
                   <a
                     href={msg.attachment.url}
                     target="_blank"

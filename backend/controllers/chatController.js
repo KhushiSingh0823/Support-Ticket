@@ -1,15 +1,27 @@
 const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
 const Message = require('../models/message');
 const Ticket = require('../models/Ticket');
 
-// ✅ Save a new general chat message
+// ✅ Allowed image types
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+
+// ✅ Utility to convert image to base64
+const getBase64Image = (file) => {
+  const filePath = path.join(__dirname, '..', 'uploads', file.filename);
+  const fileData = fs.readFileSync(filePath);
+  return `data:${file.mimetype};base64,${fileData.toString('base64')}`;
+};
+
+// ✅ Save general chat message
 exports.saveMessage = async (req, res) => {
   try {
-    const { content, chatType, replyTo, attachment } = req.body;
+    const { content, chatType, replyTo } = req.body;
 
-    if (!chatType || (!content && !attachment)) {
+    if (!chatType || (!content && !req.file)) {
       return res.status(400).json({
-        error: 'chatType and either message content or attachment are required.',
+        error: 'chatType and either message content or image are required.',
       });
     }
 
@@ -25,26 +37,30 @@ exports.saveMessage = async (req, res) => {
       messageData.replyTo = replyTo;
     }
 
-    if (attachment?.name && attachment?.url) {
+    if (req.file) {
+      if (!ALLOWED_IMAGE_TYPES.includes(req.file.mimetype)) {
+        return res.status(400).json({ error: 'Only image files are allowed.' });
+      }
+
       messageData.attachment = {
-        name: attachment.name,
-        url: attachment.url,
+        name: req.file.originalname,
+        base64: getBase64Image(req.file),
       };
     }
 
     const saved = await new Message(messageData).save();
-    const populatedMessage = await Message.findById(saved._id)
+    const populated = await Message.findById(saved._id)
       .populate('replyTo')
       .populate('sender', '_id name role');
 
-    res.status(201).json(populatedMessage);
-  } catch (error) {
-    console.error('❌ Error saving message:', error.message);
-    res.status(500).json({ error: 'Failed to save message' });
+    res.status(201).json(populated);
+  } catch (err) {
+    console.error('❌ Error saving message:', err.message);
+    res.status(500).json({ error: 'Failed to save message.' });
   }
 };
 
-// ✅ Get general or ticket chat messages
+// ✅ Get messages (general or ticket)
 exports.getMessages = async (req, res) => {
   try {
     const { chatType } = req.params;
@@ -53,7 +69,7 @@ exports.getMessages = async (req, res) => {
     if (req.user.role === 'user') {
       filter.$or = [
         { sender: req.user._id },
-        { role: { $in: ['admin', 'Admin'] } },
+        { role: 'admin' },
       ];
     }
 
@@ -63,9 +79,9 @@ exports.getMessages = async (req, res) => {
       .sort({ timestamp: 1 });
 
     res.json(messages);
-  } catch (error) {
-    console.error('❌ Error fetching messages:', error.message);
-    res.status(500).json({ error: 'Failed to fetch messages' });
+  } catch (err) {
+    console.error('❌ Error fetching messages:', err.message);
+    res.status(500).json({ error: 'Failed to fetch messages.' });
   }
 };
 
@@ -75,34 +91,24 @@ exports.markMessagesAsRead = async (req, res) => {
     const { chatType } = req.body;
     const userId = req.user._id;
 
-    if (!chatType || !userId) {
-      return res.status(400).json({ error: 'chatType and user must be provided' });
+    if (!chatType) {
+      return res.status(400).json({ error: 'chatType is required.' });
     }
 
     const now = new Date();
 
-    const unreadMessages = await Message.find({
+    const unread = await Message.find({
       chatType,
       'readBy.user': { $ne: userId },
     });
 
     await Message.updateMany(
-      {
-        chatType,
-        'readBy.user': { $ne: userId },
-      },
-      {
-        $addToSet: {
-          readBy: {
-            user: userId,
-            at: now,
-          },
-        },
-      }
+      { chatType, 'readBy.user': { $ne: userId } },
+      { $addToSet: { readBy: { user: userId, at: now } } }
     );
 
     const io = req.app.get('io');
-    unreadMessages.forEach((msg) => {
+    unread.forEach((msg) => {
       io.to(chatType).emit('message-read', {
         messageId: msg._id,
         reader: { user: userId, at: now },
@@ -110,19 +116,19 @@ exports.markMessagesAsRead = async (req, res) => {
     });
 
     res.sendStatus(200);
-  } catch (error) {
-    console.error('❌ Error marking messages as read:', error.message);
+  } catch (err) {
+    console.error('❌ Error marking as read:', err.message);
     res.status(500).json({ error: 'Failed to mark messages as read.' });
   }
 };
 
-// ✅ Get all messages for a specific ticket
+// ✅ Get messages by ticket ID
 exports.getMessagesByTicketId = async (req, res) => {
   try {
     const { ticketId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(ticketId)) {
-      return res.status(400).json({ message: 'Invalid ticket ID' });
+      return res.status(400).json({ error: 'Invalid ticket ID.' });
     }
 
     const ticket = await Ticket.findById(ticketId).populate({
@@ -135,33 +141,33 @@ exports.getMessagesByTicketId = async (req, res) => {
     });
 
     if (!ticket) {
-      return res.status(404).json({ message: 'Ticket not found' });
+      return res.status(404).json({ error: 'Ticket not found.' });
     }
 
-    res.status(200).json(ticket.messages);
-  } catch (error) {
-    console.error('❌ Error fetching ticket messages:', error.message);
-    res.status(500).json({ error: 'Failed to get ticket messages' });
+    res.json(ticket.messages);
+  } catch (err) {
+    console.error('❌ Error getting ticket messages:', err.message);
+    res.status(500).json({ error: 'Failed to get ticket messages.' });
   }
 };
 
-// ✅ Send message to a specific ticket
+// ✅ Send message to ticket
 exports.sendTicketMessage = async (req, res) => {
   try {
     const { content, replyTo } = req.body;
     const { ticketId } = req.params;
 
     if (!mongoose.Types.ObjectId.isValid(ticketId)) {
-      return res.status(400).json({ message: 'Invalid ticket ID' });
+      return res.status(400).json({ error: 'Invalid ticket ID.' });
     }
 
     if (!content && !req.file) {
-      return res.status(400).json({ message: 'Message content or file is required.' });
+      return res.status(400).json({ error: 'Message content or image is required.' });
     }
 
     const ticket = await Ticket.findById(ticketId);
     if (!ticket) {
-      return res.status(404).json({ message: 'Ticket not found' });
+      return res.status(404).json({ error: 'Ticket not found.' });
     }
 
     const messageData = {
@@ -178,26 +184,79 @@ exports.sendTicketMessage = async (req, res) => {
     }
 
     if (req.file) {
+      if (!ALLOWED_IMAGE_TYPES.includes(req.file.mimetype)) {
+        return res.status(400).json({ error: 'Only image files are allowed.' });
+      }
+
       messageData.attachment = {
         name: req.file.originalname,
-        url: `/uploads/${req.file.filename}`,
+        base64: getBase64Image(req.file),
       };
     }
 
-    const newMessage = await new Message(messageData).save();
-    ticket.messages.push(newMessage._id);
+    const newMsg = await new Message(messageData).save();
+    ticket.messages.push(newMsg._id);
     await ticket.save();
 
-    const populatedMessage = await Message.findById(newMessage._id)
+    const populated = await Message.findById(newMsg._id)
       .populate('sender', '_id name role')
       .populate('replyTo');
 
     const io = req.app.get('io');
-    io.to(ticketId).emit('receive-message', populatedMessage);
+    io.to(ticketId).emit('receive-message', populated);
 
-    res.status(201).json(populatedMessage);
-  } catch (error) {
-    console.error('❌ Error sending ticket message:', error.message);
-    res.status(500).json({ error: 'Failed to send message to ticket' });
+    res.status(201).json(populated);
+  } catch (err) {
+    console.error('❌ Error sending ticket message:', err.message);
+    res.status(500).json({ error: 'Failed to send message to ticket.' });
+  }
+};
+// ✅ Mark a message as delivered
+exports.markMessageAsDelivered = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id;
+
+    const message = await Message.findById(id);
+    if (!message) return res.status(404).json({ error: 'Message not found.' });
+
+    const alreadyDelivered = message.deliveredTo.some((entry) =>
+      entry.user.equals(userId)
+    );
+
+    if (!alreadyDelivered) {
+      message.deliveredTo.push({ user: userId, at: new Date() });
+      await message.save();
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('❌ Error marking message as delivered:', err.message);
+    res.status(500).json({ error: 'Failed to mark message as delivered.' });
+  }
+};
+
+// ✅ Mark a message as read
+exports.markMessageAsRead = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user._id;
+
+    const message = await Message.findById(id);
+    if (!message) return res.status(404).json({ error: 'Message not found.' });
+
+    const alreadyRead = message.readBy.some((entry) =>
+      entry.user.equals(userId)
+    );
+
+    if (!alreadyRead) {
+      message.readBy.push({ user: userId, at: new Date() });
+      await message.save();
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('❌ Error marking message as read:', err.message);
+    res.status(500).json({ error: 'Failed to mark message as read.' });
   }
 };

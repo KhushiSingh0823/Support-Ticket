@@ -22,7 +22,12 @@ export const getTicketMessages = (ticketId) =>
   API.get(`/chat/ticket/${ticketId}`);
 
 // ✅ Send a new message related to a specific ticket
-export const sendTicketMessage = (ticketId, messageData) =>
-  API.post(`/chat/ticket/${ticketId}/send`, messageData);
+export const sendTicketMessage = (ticketId, formData) =>
+  API.post(`/chat/ticket/${ticketId}/send`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
 
+// ✅ FIXED: Add this line 👇
 export default API;

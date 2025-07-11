@@ -5,10 +5,12 @@ const {
   getMessages,
   getMessagesByTicketId,
   markMessagesAsRead,
-  sendTicketMessage, // ✅ ADD THIS
+  sendTicketMessage,
+  markMessageAsDelivered, // ✅ ADDED
+  markMessageAsRead,      // ✅ ADDED
 } = require('../controllers/chatController');
 const { protect } = require('../middlewares/authMiddleware');
-const upload = require('../middlewares/uploadMiddleware'); // ✅ For file uploads
+const upload = require('../middlewares/uploadMiddleware');
 
 // ✅ Save a new message (general or ticket)
 router.post('/send', protect, saveMessage);
@@ -22,7 +24,13 @@ router.post('/mark-read', protect, markMessagesAsRead);
 // ✅ Get messages by specific ticketId
 router.get('/ticket/:ticketId', protect, getMessagesByTicketId);
 
-// ✅ NEW: Send message to a specific ticket
+// ✅ Send message to a specific ticket
 router.post('/ticket/:ticketId/send', protect, upload.single('file'), sendTicketMessage);
+
+// ✅ NEW: Mark a single message as delivered
+router.post('/:id/delivered', protect, markMessageAsDelivered);
+
+// ✅ NEW: Mark a single message as read
+router.post('/:id/read', protect, markMessageAsRead);
 
 module.exports = router;

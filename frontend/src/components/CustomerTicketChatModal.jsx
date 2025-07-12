@@ -6,7 +6,8 @@ import { format, isValid, parseISO } from 'date-fns';
 import { io } from 'socket.io-client';
 import API, { getTicketMessages, sendTicketMessage } from '../api/api'; // ✅ Fixed import
 
-const socket = io('http://localhost:5000');
+//const socket = io('http://localhost:5000');
+const socket = io('https://support-ticket-wcys.onrender.com');
 
 const CustomerTicketChatModal = ({ ticket, onClose }) => {
   const { user } = useAuth();

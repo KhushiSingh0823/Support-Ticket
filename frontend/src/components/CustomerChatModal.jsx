@@ -7,7 +7,9 @@ import { io } from 'socket.io-client';
 import API from '../api/api';
 import { useAuth } from '../context/AuthContext';
 
-const socket = io('http://localhost:5000');
+//const socket = io('http://localhost:5000');
+const socket = io('https://support-ticket-wcys.onrender.com');
+
 
 const CustomerChatModal = ({ onClose }) => {
   const { user, token } = useAuth();

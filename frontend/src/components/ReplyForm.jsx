@@ -6,7 +6,8 @@ import { format, parseISO, isValid } from 'date-fns';
 import { FiPaperclip, FiX } from 'react-icons/fi';
 import { MdDoneAll } from 'react-icons/md';
 
-const socket = io('http://localhost:5000');
+//const socket = io('http://localhost:5000');
+const socket = io('https://support-ticket-wcys.onrender.com');
 
 const ReplyForm = ({ ticket }) => {
   const { user } = useAuth();

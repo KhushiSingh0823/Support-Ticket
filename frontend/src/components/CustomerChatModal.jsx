@@ -1,3 +1,4 @@
+// ✅ KEEP THIS INTACT (no change to the imports)
 import React, { useEffect, useRef, useState } from 'react';
 import { FiX, FiPaperclip } from 'react-icons/fi';
 import { MdDoneAll } from 'react-icons/md';
@@ -36,7 +37,6 @@ const CustomerChatModal = ({ onClose }) => {
         });
         setMessages(sortMessages(res.data));
 
-        // Mark unread as read
         const unread = res.data.filter(
           (m) =>
             !m.readBy?.some((rb) =>
@@ -93,60 +93,43 @@ const CustomerChatModal = ({ onClose }) => {
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() && !attachment) return;
+    console.log('🔹 Clicked Send');
+    if (!input.trim() && !attachment) {
+      console.log('❌ No input or attachment to send');
+      return;
+    }
 
-    const message = {
-      content: input,
-      chatType: 'general',
-      replyTo,
-      role: 'user',
-      sender: user._id,
-    };
+    const formData = new FormData();
+    formData.append('content', input);
+    formData.append('chatType', 'general');
+    if (replyTo) formData.append('replyTo', replyTo._id);
+    if (attachment) {
+      console.log('📎 Attachment:', attachment.name);
+      formData.append('file', attachment);
+    }
 
-    if (attachment?.name && attachment?.size > 0) {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        message.attachment = {
-          name: attachment.name,
-          base64: reader.result,
-        };
+    try {
+      const res = await API.post('/chat/send', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
 
-        try {
-          const res = await API.post('/chat/send', message, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-
-          socket.emit('send-message', res.data);
-          setInput('');
-          setAttachment(null);
-          setReplyTo(null);
-          inputRef.current?.focus();
-        } catch (err) {
-          console.error('Send failed:', err);
-        }
-      };
-      reader.readAsDataURL(attachment);
-    } else {
-      try {
-        const res = await API.post('/chat/send', message, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        socket.emit('send-message', res.data);
-        setInput('');
-        setAttachment(null);
-        setReplyTo(null);
-        inputRef.current?.focus();
-      } catch (err) {
-        console.error('Send failed:', err);
-      }
+      console.log('✅ Message sent successfully:', res.data);
+      socket.emit('send-message', res.data);
+      setInput('');
+      setAttachment(null);
+      setReplyTo(null);
+      inputRef.current?.focus();
+    } catch (err) {
+      console.error('❌ Send failed:', err);
     }
   };
 
   const handleInputChange = (e) => {
     setInput(e.target.value);
     socket.emit('typing', true);
-
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit('typing', false);
@@ -157,8 +140,6 @@ const CustomerChatModal = ({ onClose }) => {
     const date = typeof timestamp === 'string' ? parseISO(timestamp) : new Date(timestamp);
     return isValid(date) ? format(date, 'p') : '—';
   };
-
-  const recipientId = null; // For general chat, skip recipient-specific logic
 
   return (
     <div className="fixed bottom-4 right-4 w-full sm:w-[25rem] md:w-[28rem] max-h-[90vh] bg-white shadow-xl rounded-xl flex flex-col z-50 border border-gray-200">
@@ -176,9 +157,7 @@ const CustomerChatModal = ({ onClose }) => {
           const senderId = typeof msg.sender === 'string' ? msg.sender : msg.sender?._id;
           const isUser = String(senderId) === String(user._id);
           const isDelivered = !!msg._id;
-
           const isRead = isUser && msg.readBy?.length > 1;
-
           const key = msg._id || `${index}-fallback`;
 
           return (
@@ -206,13 +185,14 @@ const CustomerChatModal = ({ onClose }) => {
                       ↪ {msg.replyTo.content.slice(0, 40)}...
                     </div>
                   )}
-                  <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+
+                  {msg.content && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
 
                   {msg.attachment?.base64 && (
                     <img
                       src={msg.attachment.base64}
-                      alt={msg.attachment.name}
-                      className="max-w-[200px] mt-2 rounded-lg shadow"
+                      alt={msg.attachment.name || 'attachment'}
+                      className="max-w-[220px] mt-2 rounded-md shadow"
                     />
                   )}
 
@@ -242,9 +222,7 @@ const CustomerChatModal = ({ onClose }) => {
             </div>
           );
         })}
-        {typing && (
-          <div className="text-xs italic text-gray-500">Admin is typing...</div>
-        )}
+        {typing && <div className="text-xs italic text-gray-500">Admin is typing...</div>}
         <div ref={bottomRef} />
       </div>
 
@@ -269,7 +247,11 @@ const CustomerChatModal = ({ onClose }) => {
             type="file"
             hidden
             accept="image/*"
-            onChange={(e) => setAttachment(e.target.files[0])}
+            onChange={(e) => {
+              const file = e.target.files[0];
+              console.log('📂 File selected:', file);
+              setAttachment(file);
+            }}
           />
         </label>
         <input

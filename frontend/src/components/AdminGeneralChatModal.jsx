@@ -14,7 +14,6 @@ const AdminGeneralChatModal = ({ onClose }) => {
   const [input, setInput] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [attachment, setAttachment] = useState(null);
-  const [isUserTyping, setIsUserTyping] = useState(false);
   const [typing, setTyping] = useState(false);
   const typingTimeoutRef = useRef(null);
   const inputRef = useRef();
@@ -45,9 +44,11 @@ const AdminGeneralChatModal = ({ onClose }) => {
         );
 
         if (unread.length) {
-          await API.post('/chat/mark-read', { chatType: 'general' }, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
+          await API.post(
+            '/chat/mark-read',
+            { chatType: 'general' },
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
 
           unread.forEach((msg) =>
             socket.emit('message-read', {
@@ -58,7 +59,7 @@ const AdminGeneralChatModal = ({ onClose }) => {
           );
         }
       } catch (err) {
-        console.error('Error fetching messages', err);
+        console.error('❌ Fetch error:', err);
       }
     };
 
@@ -85,13 +86,11 @@ const AdminGeneralChatModal = ({ onClose }) => {
       }
     });
 
-    socket.on('typing', (status) => setIsUserTyping(status));
-    socket.on('stop-typing', () => setIsUserTyping(false));
+    socket.on('typing', (status) => setTyping(status));
 
     return () => {
       socket.off('receive-message');
       socket.off('typing');
-      socket.off('stop-typing');
     };
   }, [token, user._id]);
 
@@ -102,55 +101,36 @@ const AdminGeneralChatModal = ({ onClose }) => {
   const handleSend = async () => {
     if (!input.trim() && !attachment) return;
 
-    const message = {
-      content: input,
-      chatType: 'general',
-      replyTo,
-      role: 'admin',
-      sender: user._id,
-    };
+    const formData = new FormData();
+    formData.append('content', input);
+    formData.append('chatType', 'general');
+    if (replyTo) formData.append('replyTo', replyTo._id);
+    if (attachment) formData.append('file', attachment);
 
-    const sendMsg = async (msg) => {
-      try {
-        const res = await API.post('/chat/send', msg, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+    try {
+      const res = await API.post('/chat/send', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
 
-        socket.emit('send-message', res.data);
-        setInput('');
-        setAttachment(null);
-        setReplyTo(null);
-        socket.emit('stop-typing', { room: 'general' });
-        setTyping(false);
-        inputRef.current?.focus();
-      } catch (err) {
-        console.error('Send error:', err);
-      }
-    };
-
-    if (attachment) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        message.attachment = {
-          name: attachment.name,
-          base64: reader.result,
-        };
-        sendMsg(message);
-      };
-      reader.readAsDataURL(attachment);
-    } else {
-      sendMsg(message);
+      socket.emit('send-message', res.data);
+      setInput('');
+      setAttachment(null);
+      setReplyTo(null);
+      inputRef.current?.focus();
+    } catch (err) {
+      console.error('❌ Send failed:', err);
     }
   };
 
   const handleInputChange = (e) => {
     setInput(e.target.value);
     socket.emit('typing', true);
-
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit('typing', false);
-      setTyping(false);
     }, 1000);
   };
 
@@ -173,22 +153,21 @@ const AdminGeneralChatModal = ({ onClose }) => {
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 bg-[#ece5dd]">
         {messages.map((msg, index) => {
           const senderId = typeof msg.sender === 'string' ? msg.sender : msg.sender?._id;
-          const isYou = String(senderId) === String(user._id);
+          const isUser = String(senderId) === String(user._id);
           const isDelivered = !!msg._id;
-          const isRead = isYou && msg.readBy?.length > 1;
-
+          const isRead = isUser && msg.readBy?.length > 1;
           const key = msg._id || `${index}-fallback`;
 
           return (
             <div
               key={key}
               ref={(el) => (messageRefs.current[msg._id] = el)}
-              className={`flex ${isYou ? 'justify-end' : 'justify-start'}`}
+              className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
             >
               <div className="flex flex-col items-end max-w-[75%]">
                 <div
                   className={`relative w-fit px-4 py-2 rounded-2xl text-sm break-words whitespace-pre-wrap shadow-sm ${
-                    isYou
+                    isUser
                       ? 'bg-blue-100 text-black rounded-br-none'
                       : 'bg-white text-black rounded-bl-none'
                   }`}
@@ -204,19 +183,22 @@ const AdminGeneralChatModal = ({ onClose }) => {
                       ↪ {msg.replyTo.content.slice(0, 40)}...
                     </div>
                   )}
-                  <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+
+                  {msg.content && (
+                    <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                  )}
 
                   {msg.attachment?.base64 && (
                     <img
                       src={msg.attachment.base64}
-                      alt={msg.attachment.name}
-                      className="max-w-[200px] mt-2 rounded-lg shadow"
+                      alt={msg.attachment.name || 'attachment'}
+                      className="max-w-[220px] mt-2 rounded-md shadow"
                     />
                   )}
 
                   <div className="text-[10px] text-gray-500 mt-1 flex justify-end items-center gap-1">
                     {getFormattedTime(msg.createdAt)}
-                    {isYou && (
+                    {isUser && (
                       <>
                         {isRead ? (
                           <MdDoneAll className="text-blue-500 text-sm" />
@@ -231,16 +213,16 @@ const AdminGeneralChatModal = ({ onClose }) => {
                 </div>
                 <div
                   className={`text-[10px] text-gray-500 mt-[2px] ${
-                    isYou ? 'text-right pr-1' : 'text-left pl-1'
+                    isUser ? 'text-right pr-1' : 'text-left pl-1'
                   }`}
                 >
-                  {isYou ? 'You' : 'User'}
+                  {isUser ? 'You' : 'User'}
                 </div>
               </div>
             </div>
           );
         })}
-        {isUserTyping && (
+        {typing && (
           <div className="text-xs italic text-gray-500">User is typing...</div>
         )}
         <div ref={bottomRef} />

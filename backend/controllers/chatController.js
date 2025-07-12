@@ -1,18 +1,9 @@
 const mongoose = require('mongoose');
-const fs = require('fs');
-const path = require('path');
 const Message = require('../models/message');
 const Ticket = require('../models/Ticket');
 
 // ✅ Allowed image types
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
-
-// ✅ Utility to convert image to base64
-const getBase64Image = (file) => {
-  const filePath = path.join(__dirname, '..', 'uploads', file.filename);
-  const fileData = fs.readFileSync(filePath);
-  return `data:${file.mimetype};base64,${fileData.toString('base64')}`;
-};
 
 // ✅ Save general chat message
 exports.saveMessage = async (req, res) => {
@@ -44,7 +35,7 @@ exports.saveMessage = async (req, res) => {
 
       messageData.attachment = {
         name: req.file.originalname,
-        base64: getBase64Image(req.file),
+        url: req.cloudinaryUrl,
       };
     }
 
@@ -190,7 +181,7 @@ exports.sendTicketMessage = async (req, res) => {
 
       messageData.attachment = {
         name: req.file.originalname,
-        base64: getBase64Image(req.file),
+        url: req.cloudinaryUrl,
       };
     }
 
@@ -211,6 +202,7 @@ exports.sendTicketMessage = async (req, res) => {
     res.status(500).json({ error: 'Failed to send message to ticket.' });
   }
 };
+
 // ✅ Mark a message as delivered
 exports.markMessageAsDelivered = async (req, res) => {
   try {

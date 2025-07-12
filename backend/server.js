@@ -17,17 +17,32 @@ connectDB();
 // Initialize app and server
 const app = express();
 const server = http.createServer(app);
+
+// ✅ FIXED: Allow frontend domains for CORS (Express)
+app.use(
+  cors({
+    origin: [
+      'http://localhost:5173',
+      'https://support-ticket-smoky.vercel.app',
+    ],
+    credentials: true,
+  })
+);
+
+// Body parser
+app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// ✅ FIXED: CORS for Socket.IO
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: [
+      'http://localhost:5173',
+      'https://support-ticket-smoky.vercel.app',
+    ],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
-
-// Global middleware
-app.use(cors());
-app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/auth', require('./routes/authRoutes'));
@@ -52,7 +67,7 @@ io.on('connection', (socket) => {
     socket.to(room).emit('stop-typing');
   });
 
-  //only emit, no DB save here
+  // only emit, no DB save here
   socket.on('send-message', (msg) => {
     const roomId =
       msg.chatType === 'ticket' && msg.ticketId

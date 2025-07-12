@@ -10,7 +10,6 @@ import { useAuth } from '../context/AuthContext';
 //const socket = io('http://localhost:5000');
 const socket = io('https://support-ticket-wcys.onrender.com');
 
-
 const CustomerChatModal = ({ onClose }) => {
   const { user, token } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -188,13 +187,15 @@ const CustomerChatModal = ({ onClose }) => {
                     </div>
                   )}
 
-                  {msg.content && <p className="whitespace-pre-wrap break-words">{msg.content}</p>}
+                  {msg.content && (
+                    <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                  )}
 
-                  {msg.attachment?.base64 && (
+                  {msg.attachment?.url && (
                     <img
-                      src={msg.attachment.base64}
+                      src={msg.attachment.url}
                       alt={msg.attachment.name || 'attachment'}
-                      className="max-w-[220px] mt-2 rounded-md shadow"
+                      className="max-w-[220px] mt-2 rounded-md shadow border"
                     />
                   )}
 

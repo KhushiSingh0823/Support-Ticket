@@ -4,9 +4,8 @@ import { MdDoneAll } from 'react-icons/md';
 import { useAuth } from '../context/AuthContext';
 import { format, isValid, parseISO } from 'date-fns';
 import { io } from 'socket.io-client';
-import API, { getTicketMessages, sendTicketMessage } from '../api/api'; // ✅ Fixed import
+import API, { getTicketMessages, sendTicketMessage } from '../api/api';
 
-//const socket = io('http://localhost:5000');
 const socket = io('https://support-ticket-wcys.onrender.com');
 
 const CustomerTicketChatModal = ({ ticket, onClose }) => {
@@ -32,7 +31,6 @@ const CustomerTicketChatModal = ({ ticket, onClose }) => {
         const allMessages = res.data || [];
         setMessages(allMessages);
 
-        // ✅ Mark admin messages as read
         const unread = allMessages.filter(
           (m) =>
             m.role === 'admin' &&
@@ -51,7 +49,6 @@ const CustomerTicketChatModal = ({ ticket, onClose }) => {
             });
           }
 
-          // ✅ FIXED: Use API wrapper (not fetch)
           await API.post('/chat/mark-read', { chatType: 'ticket' });
         }
       } catch (err) {
@@ -67,7 +64,6 @@ const CustomerTicketChatModal = ({ ticket, onClose }) => {
         return [...prev, msg];
       });
 
-      // ✅ Mark admin message as read if user hasn't read it yet
       if (
         msg.role === 'admin' &&
         !msg.readBy?.some((rb) => {
@@ -80,7 +76,6 @@ const CustomerTicketChatModal = ({ ticket, onClose }) => {
           reader: { user: user._id, at: new Date() },
         });
 
-        // ✅ FIXED: Use API wrapper (not fetch)
         API.post('/chat/mark-read', { chatType: 'ticket' }).catch(() => {});
       }
     });
@@ -189,8 +184,8 @@ const CustomerTicketChatModal = ({ ticket, onClose }) => {
           const senderId = msg.sender?._id || msg.sender;
           const isSender = senderId === user._id;
           const isDelivered = !!msg._id;
-
           const adminId = ticket.assignedAdmin?._id || ticket.assignedAdmin;
+
           const isRead =
             isSender &&
             msg.readBy?.some((rb) => {
@@ -198,7 +193,7 @@ const CustomerTicketChatModal = ({ ticket, onClose }) => {
               return rbId === adminId;
             });
 
-          const uniqueKey = msg._id || `${index}-${Date.now()}`; // Prevent duplicate key error
+          const uniqueKey = msg._id || `${index}-${Date.now()}`;
 
           return (
             <div
@@ -223,14 +218,22 @@ const CustomerTicketChatModal = ({ ticket, onClose }) => {
                     </div>
                   )}
 
-                  <ReadMore text={msg.content || ''} />
+                  {msg.content?.trim() && (
+                    <ReadMore text={msg.content} />
+                  )}
 
-                  {msg.attachment?.base64 && (
-                    <img
-                      src={msg.attachment.base64}
-                      alt={msg.attachment.name || 'attachment'}
-                      className="mt-2 max-w-[200px] rounded-md shadow-sm border"
-                    />
+                  {msg.attachment?.url && (
+                    <div className="mt-2">
+                      <img
+                        src={msg.attachment.url}
+                        alt={msg.attachment.name || 'attachment'}
+                        className="max-w-[200px] rounded-md shadow-sm border"
+                      />
+                    </div>
+                  )}
+
+                  {!msg.content?.trim() && !msg.attachment?.url && (
+                    <div className="text-gray-400 italic">[Empty message]</div>
                   )}
 
                   <div className="text-[10px] text-gray-500 mt-1 flex justify-end items-center gap-1">
@@ -263,7 +266,6 @@ const CustomerTicketChatModal = ({ ticket, onClose }) => {
         {typing && (
           <div className="text-xs text-gray-500 italic mt-2 animate-pulse">Admin is typing...</div>
         )}
-
         <div ref={bottomRef} />
       </div>
 

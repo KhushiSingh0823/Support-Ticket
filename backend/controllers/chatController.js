@@ -33,6 +33,11 @@ exports.saveMessage = async (req, res) => {
         return res.status(400).json({ error: 'Only image files are allowed.' });
       }
 
+      // ✅ Prevent saving if Cloudinary failed silently
+      if (!req.cloudinaryUrl) {
+        return res.status(500).json({ error: 'Image upload failed. Please try again.' });
+      }
+
       messageData.attachment = {
         name: req.file.originalname,
         url: req.cloudinaryUrl,
@@ -58,10 +63,7 @@ exports.getMessages = async (req, res) => {
     const filter = { chatType };
 
     if (req.user.role === 'user') {
-      filter.$or = [
-        { sender: req.user._id },
-        { role: 'admin' },
-      ];
+      filter.$or = [{ sender: req.user._id }, { role: 'admin' }];
     }
 
     const messages = await Message.find(filter)
@@ -177,6 +179,11 @@ exports.sendTicketMessage = async (req, res) => {
     if (req.file) {
       if (!ALLOWED_IMAGE_TYPES.includes(req.file.mimetype)) {
         return res.status(400).json({ error: 'Only image files are allowed.' });
+      }
+
+      // ✅ Prevent saving if Cloudinary failed silently
+      if (!req.cloudinaryUrl) {
+        return res.status(500).json({ error: 'Image upload failed. Please try again.' });
       }
 
       messageData.attachment = {

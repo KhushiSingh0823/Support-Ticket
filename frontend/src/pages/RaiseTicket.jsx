@@ -44,7 +44,8 @@ const RaiseTicket = () => {
         data.append("screenshot", formData.screenshot, formData.screenshot.name); // ✅ FIXED
       }
 
-      const res = await fetch("http://localhost:5000/api/tickets", {
+      //const res = await fetch("http://localhost:5000/api/tickets",
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/tickets`, {
         method: "POST",
         body: data,
         headers: { Authorization: `Bearer ${token}` },

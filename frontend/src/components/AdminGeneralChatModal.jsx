@@ -6,9 +6,7 @@ import { io } from 'socket.io-client';
 import API from '../api/api';
 import { useAuth } from '../context/AuthContext';
 
-//const socket = io('http://localhost:5000');
 const socket = io('https://support-ticket-wcys.onrender.com');
-
 
 const AdminGeneralChatModal = ({ onClose }) => {
   const { user, token } = useAuth();
@@ -23,8 +21,9 @@ const AdminGeneralChatModal = ({ onClose }) => {
   const messageRefs = useRef({});
 
   const sortMessages = (msgs) =>
-    [...msgs].sort((a, b) =>
-      new Date(a.timestamp || a.createdAt) - new Date(b.timestamp || b.createdAt)
+    [...msgs].sort(
+      (a, b) =>
+        new Date(a.timestamp || a.createdAt) - new Date(b.timestamp || b.createdAt)
     );
 
   useEffect(() => {
@@ -190,11 +189,12 @@ const AdminGeneralChatModal = ({ onClose }) => {
                     <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                   )}
 
-                  {msg.attachment?.base64 && (
+                  {/* ✅ Image Preview */}
+                  {msg.attachment?.url && (
                     <img
-                      src={msg.attachment.base64}
+                      src={msg.attachment.url}
                       alt={msg.attachment.name || 'attachment'}
-                      className="max-w-[220px] mt-2 rounded-md shadow"
+                      className="max-w-[220px] mt-2 rounded-md shadow border"
                     />
                   )}
 

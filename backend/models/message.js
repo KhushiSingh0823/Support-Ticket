@@ -37,10 +37,10 @@ const messageSchema = new mongoose.Schema(
       default: null,
     },
 
-    // 📎 Optional file attachment with base64
+    // 📎 Optional file attachment from Cloudinary
     attachment: {
       name: { type: String, default: '' },
-      base64: { type: String, default: '' }, // 👈 Changed from `url` to `base64`
+      url: { type: String, default: '' }, // ✅ Corrected from `base64` to `url`
     },
 
     // ✅ Read receipts

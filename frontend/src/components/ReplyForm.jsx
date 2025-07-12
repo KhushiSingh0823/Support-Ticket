@@ -6,7 +6,6 @@ import { format, parseISO, isValid } from 'date-fns';
 import { FiPaperclip, FiX } from 'react-icons/fi';
 import { MdDoneAll } from 'react-icons/md';
 
-//const socket = io('http://localhost:5000');
 const socket = io('https://support-ticket-wcys.onrender.com');
 
 const ReplyForm = ({ ticket }) => {
@@ -203,14 +202,23 @@ const ReplyForm = ({ ticket }) => {
                       <ReadMore text={`Replying to: "${msg.replyTo.content}"`} maxChars={100} />
                     </div>
                   )}
-                  <ReadMore text={msg.content || ''} />
-                  {msg.attachment?.base64 && (
+
+                  {msg.content?.trim() && (
+                    <ReadMore text={msg.content} />
+                  )}
+
+                  {msg.attachment?.url && (
                     <img
-                      src={msg.attachment.base64}
-                      alt={msg.attachment.name}
-                      className="max-w-[200px] mt-2 rounded-lg shadow"
+                      src={msg.attachment.url}
+                      alt={msg.attachment.name || 'attachment'}
+                      className="max-w-[200px] mt-2 rounded-lg shadow border"
                     />
                   )}
+
+                  {!msg.content?.trim() && !msg.attachment?.url && (
+                    <div className="text-gray-400 italic">[Empty message]</div>
+                  )}
+
                   <div className="text-[10px] text-gray-500 mt-1 flex justify-end items-center gap-1">
                     {getFormattedTime(msg.createdAt)}
                     {isSender && (

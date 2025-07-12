@@ -36,35 +36,37 @@ const AdminTicketList = ({ onSelectTicket, searchQuery, onStatusUpdate }) => {
   };
 
   const handleAssign = async (ticketId, adminId) => {
-    try {
-      await API.post(
-        `/tickets/assign/${ticketId}`,
-        { adminId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      toast.success('Admin assigned!');
-      fetchData();
+  try {
+    await API.post(
+      `/tickets/${ticketId}/assign`, // ✅ CORRECT
+      { adminId },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    toast.success('Admin assigned!');
+    fetchData();
     } catch (err) {
       toast.error('Failed to assign');
       console.error(err);
     }
   };
 
+
   const handleStatusChange = async (ticketId, newStatus) => {
-    try {
-      await API.patch(
-        `/tickets/update-status/${ticketId}`,
-        { status: newStatus },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      toast.success('Status updated!');
-      fetchData();
-      if (onStatusUpdate) onStatusUpdate(); // ✅ only fix added
+  try {
+    await API.put( // ✅ changed from patch → put
+      `/tickets/${ticketId}/status`, // ✅ fixed route
+      { status: newStatus },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    toast.success('Status updated!');
+    fetchData();
+    if (onStatusUpdate) onStatusUpdate();
     } catch (error) {
       toast.error('Failed to update status');
       console.error(error);
     }
   };
+
 
   const toggleDropdown = (ticketId) => {
     setTickets((prev) =>

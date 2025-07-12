@@ -3,27 +3,37 @@ const multer = require('multer');
 const { Readable } = require('stream');
 const cloudinary = require('../utils/cloudinary');
 
-// Use memory storage so file is available as buffer
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
-// Middleware to upload file to Cloudinary
 const uploadToCloudinary = (req, res, next) => {
-  if (!req.file) return next();
+  try {
+    if (!req.file) return next(); // ✅ safely skip if no file
 
-  const stream = cloudinary.uploader.upload_stream(
-    { folder: 'support-uploads' }, // you can name the folder as needed
-    (err, result) => {
-      if (err) return next(err);
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'support-uploads' },
+      (err, result) => {
+        if (err) {
+          console.error("❌ Cloudinary upload error:", err);
+          return res.status(500).json({ error: "Cloudinary upload failed." });
+        }
 
-      req.cloudinaryUrl = result.secure_url; // accessible in controller
-      req.cloudinaryPublicId = result.public_id;
-      next();
+        req.cloudinaryUrl = result.secure_url;
+        req.cloudinaryPublicId = result.public_id;
+        next();
+      }
+    );
+
+    // Ensure buffer is valid before piping
+    if (req.file.buffer) {
+      Readable.from(req.file.buffer).pipe(stream);
+    } else {
+      return res.status(400).json({ error: "Invalid file buffer." });
     }
-  );
-
-  // Send buffer to Cloudinary stream
-  Readable.from(req.file.buffer).pipe(stream);
+  } catch (error) {
+    console.error("❌ Middleware crash:", error);
+    return res.status(500).json({ error: "File upload middleware failed." });
+  }
 };
 
 module.exports = {

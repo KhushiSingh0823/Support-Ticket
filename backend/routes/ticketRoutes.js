@@ -21,7 +21,7 @@ const { protect, adminOnly } = require('../middlewares/authMiddleware');
 const { upload, uploadToCloudinary } = require('../middlewares/uploadMiddleware'); // ✅ Correct import
 
 // ✅ User: Create new ticket
-router.post('/', protect, createTicket);
+router.post('/', protect, upload.single('screenshot'), uploadToCloudinary, createTicket);
 
 // ✅ User: Get own tickets
 router.get('/my-tickets', protect, getUserTickets);

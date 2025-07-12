@@ -6,16 +6,18 @@ const Message = require('../models/message');
 exports.createTicket = async (req, res) => {
   try {
     const { issue } = req.body;
+
+    if (!issue) {
+      return res.status(400).json({ message: 'Issue is required' });
+    }
+
     const userFromDb = await User.findById(req.user.id);
 
     if (!userFromDb) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    let screenshot = '';
-    if (req.file) {
-      screenshot = req.file.path;
-    }
+    const screenshot = req.cloudinaryUrl || ''; // ✅ from Cloudinary middleware
 
     const ticket = await Ticket.create({
       name: userFromDb.name,
@@ -27,8 +29,8 @@ exports.createTicket = async (req, res) => {
 
     res.status(201).json(ticket);
   } catch (err) {
-    console.error('Error creating ticket:', err);
-    res.status(500).json({ error: err.message });
+    console.error('❌ Error creating ticket:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
   }
 };
 

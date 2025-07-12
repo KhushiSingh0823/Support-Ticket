@@ -5,7 +5,7 @@ const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
 const connectDB = require('./config/db');
-const Ticket = require('./models/Ticket'); // ✅ import ticket model
+const Ticket = require('./models/Ticket'); // import ticket model
 const mongoose = require('mongoose');
 
 // Load environment variables
@@ -52,7 +52,7 @@ io.on('connection', (socket) => {
     socket.to(room).emit('stop-typing');
   });
 
-  // ✅ Fixed: only emit, no DB save here
+  //only emit, no DB save here
   socket.on('send-message', (msg) => {
     const roomId =
       msg.chatType === 'ticket' && msg.ticketId

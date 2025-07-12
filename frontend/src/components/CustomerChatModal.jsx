@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {
-  FiX, FiPaperclip, FiEdit2, FiTrash2,
-} from 'react-icons/fi';
-import { format } from 'date-fns';
+import { FiX, FiPaperclip } from 'react-icons/fi';
+import { MdDoneAll } from 'react-icons/md';
+import { format, parseISO, isValid } from 'date-fns';
 import { io } from 'socket.io-client';
 import API from '../api/api';
 import { useAuth } from '../context/AuthContext';
@@ -13,13 +12,13 @@ const CustomerChatModal = ({ onClose }) => {
   const { user, token } = useAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [typing, setTyping] = useState(false);
   const [replyTo, setReplyTo] = useState(null);
-  const [editingId, setEditingId] = useState(null);
   const [attachment, setAttachment] = useState(null);
+  const [typing, setTyping] = useState(false);
+  const typingTimeoutRef = useRef(null);
+  const messageRefs = useRef({});
   const inputRef = useRef();
   const bottomRef = useRef();
-  const typingTimeoutRef = useRef(null);
 
   const sortMessages = (msgs) =>
     [...msgs].sort(
@@ -36,15 +35,49 @@ const CustomerChatModal = ({ onClose }) => {
           headers: { Authorization: `Bearer ${token}` },
         });
         setMessages(sortMessages(res.data));
+
+        // Mark unread as read
+        const unread = res.data.filter(
+          (m) =>
+            !m.readBy?.some((rb) =>
+              (typeof rb.user === 'string' ? rb.user : rb.user?._id) === user._id
+            )
+        );
+
+        if (unread.length > 0) {
+          const now = new Date();
+          unread.forEach((msg) =>
+            socket.emit('message-read', {
+              messageId: msg._id,
+              reader: { user: user._id, at: now },
+            })
+          );
+          await API.post('/chat/mark-read', { chatType: 'general' });
+        }
       } catch (err) {
-        console.error('Error fetching messages:', err);
+        console.error('Fetch error:', err);
       }
     };
 
     fetchMessages();
 
     socket.on('receive-message', (msg) => {
-      setMessages((prev) => sortMessages([...prev, msg]));
+      setMessages((prev) => {
+        const exists = prev.some((m) => m._id === msg._id);
+        return exists ? prev : sortMessages([...prev, msg]);
+      });
+
+      const alreadyRead = msg.readBy?.some((rb) =>
+        (typeof rb.user === 'string' ? rb.user : rb.user?._id) === user._id
+      );
+
+      if (!alreadyRead) {
+        socket.emit('message-read', {
+          messageId: msg._id,
+          reader: { user: user._id, at: new Date() },
+        });
+        API.post('/chat/mark-read', { chatType: 'general' }).catch(() => {});
+      }
     });
 
     socket.on('typing', (status) => setTyping(status));
@@ -53,7 +86,7 @@ const CustomerChatModal = ({ onClose }) => {
       socket.off('receive-message');
       socket.off('typing');
     };
-  }, [token]);
+  }, [token, user._id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -70,28 +103,43 @@ const CustomerChatModal = ({ onClose }) => {
       sender: user._id,
     };
 
-    // ✅ Only attach if valid file
     if (attachment?.name && attachment?.size > 0) {
-      message.attachment = {
-        name: attachment.name,
-        url: URL.createObjectURL(attachment),
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        message.attachment = {
+          name: attachment.name,
+          base64: reader.result,
+        };
+
+        try {
+          const res = await API.post('/chat/send', message, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          socket.emit('send-message', res.data);
+          setInput('');
+          setAttachment(null);
+          setReplyTo(null);
+          inputRef.current?.focus();
+        } catch (err) {
+          console.error('Send failed:', err);
+        }
       };
-    }
+      reader.readAsDataURL(attachment);
+    } else {
+      try {
+        const res = await API.post('/chat/send', message, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
 
-    try {
-      const res = await API.post('/chat/send', message, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      socket.emit('send-message', res.data);
-
-      setInput('');
-      setAttachment(null);
-      setReplyTo(null);
-      setEditingId(null);
-      inputRef.current?.focus();
-    } catch (err) {
-      console.error('❌ Send failed:', err);
+        socket.emit('send-message', res.data);
+        setInput('');
+        setAttachment(null);
+        setReplyTo(null);
+        inputRef.current?.focus();
+      } catch (err) {
+        console.error('Send failed:', err);
+      }
     }
   };
 
@@ -99,20 +147,18 @@ const CustomerChatModal = ({ onClose }) => {
     setInput(e.target.value);
     socket.emit('typing', true);
 
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit('typing', false);
     }, 1000);
   };
 
-  const handleEdit = (id, content) => {
-    setEditingId(id);
-    setInput(content);
+  const getFormattedTime = (timestamp) => {
+    const date = typeof timestamp === 'string' ? parseISO(timestamp) : new Date(timestamp);
+    return isValid(date) ? format(date, 'p') : '—';
   };
 
-  const handleDelete = (id) => {
-    setMessages((prev) => prev.filter((msg) => msg._id !== id));
-  };
+  const recipientId = null; // For general chat, skip recipient-specific logic
 
   return (
     <div className="fixed bottom-4 right-4 w-full sm:w-[25rem] md:w-[28rem] max-h-[90vh] bg-white shadow-xl rounded-xl flex flex-col z-50 border border-gray-200">
@@ -125,79 +171,77 @@ const CustomerChatModal = ({ onClose }) => {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 bg-gray-50">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 bg-[#ece5dd]">
         {messages.map((msg, index) => {
           const senderId = typeof msg.sender === 'string' ? msg.sender : msg.sender?._id;
-          const role = msg.sender?.role || msg.role || 'user';
-          const isUser = String(senderId) === String(user._id) || role === 'user';
+          const isUser = String(senderId) === String(user._id);
+          const isDelivered = !!msg._id;
 
-          const bubbleClass = isUser
-            ? 'bg-indigo-500 text-white ml-auto rounded-br-none'
-            : 'bg-gray-200 text-gray-900 mr-auto rounded-bl-none';
+          const isRead = isUser && msg.readBy?.length > 1;
 
-          const tailClass = isUser
-            ? 'right-[-6px] bg-indigo-500 rounded-bl-sm'
-            : 'left-[-6px] bg-gray-200 rounded-br-sm';
-
-          const key = `${msg._id}_${index}`;
+          const key = msg._id || `${index}-fallback`;
 
           return (
-            <div key={key} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-              <div className={`relative px-4 py-2 max-w-[75%] rounded-2xl break-words shadow-md ${bubbleClass}`}>
-                <div className={`text-xs font-semibold mb-1 ${role === 'admin' ? 'text-blue-300' : 'text-green-300'}`}>
-                  {isUser ? 'You' : 'Admin'}
-                </div>
-
-                {msg.replyTo && (
-                  <div
-                    onClick={() => {
-                      const el = document.getElementById(msg.replyTo._id);
-                      if (el) el.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                    className="text-xs italic text-blue-100 mb-1 cursor-pointer"
-                  >
-                    ↪ {msg.replyTo?.content?.slice(0, 40)}...
-                  </div>
-                )}
-
-                <p className="text-sm">{msg.content}</p>
-
-                {/* 📎 Only render if real attachment exists */}
-                {msg.attachment?.name && msg.attachment?.url && (
-                  <a
-                    href={msg.attachment.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block mt-1 text-xs underline text-blue-200"
-                  >
-                    📎 {msg.attachment.name}
-                  </a>
-                )}
-
-                <div className={`text-[10px] mt-1 flex justify-between items-center ${isUser ? 'text-white/80' : 'text-gray-500'}`}>
-                  <span>{format(new Date(msg.timestamp || msg.createdAt), 'p')}</span>
-                  {isUser && (
-                    <div className="flex gap-2">
-                      <FiEdit2
-                        onClick={() => handleEdit(msg._id, msg.content)}
-                        className="cursor-pointer hover:text-yellow-200"
-                        size={14}
-                      />
-                      <FiTrash2
-                        onClick={() => handleDelete(msg._id)}
-                        className="cursor-pointer hover:text-red-300"
-                        size={14}
-                      />
+            <div
+              key={key}
+              ref={(el) => (messageRefs.current[msg._id] = el)}
+              className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+            >
+              <div className="flex flex-col items-end max-w-[75%]">
+                <div
+                  className={`relative w-fit px-4 py-2 rounded-2xl text-sm break-words whitespace-pre-wrap shadow-sm ${
+                    isUser
+                      ? 'bg-blue-100 text-black rounded-br-none'
+                      : 'bg-white text-black rounded-bl-none'
+                  }`}
+                >
+                  {msg.replyTo?.content && (
+                    <div
+                      className="text-xs italic text-gray-500 border-l-2 border-gray-400 pl-2 mb-1 cursor-pointer"
+                      onClick={() => {
+                        const el = messageRefs.current[msg.replyTo._id];
+                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                    >
+                      ↪ {msg.replyTo.content.slice(0, 40)}...
                     </div>
                   )}
-                </div>
+                  <p className="whitespace-pre-wrap break-words">{msg.content}</p>
 
-                <div className={`absolute bottom-0 w-3 h-3 rotate-45 ${tailClass}`}></div>
+                  {msg.attachment?.base64 && (
+                    <img
+                      src={msg.attachment.base64}
+                      alt={msg.attachment.name}
+                      className="max-w-[200px] mt-2 rounded-lg shadow"
+                    />
+                  )}
+
+                  <div className="text-[10px] text-gray-500 mt-1 flex justify-end items-center gap-1">
+                    {getFormattedTime(msg.createdAt)}
+                    {isUser && (
+                      <>
+                        {isRead ? (
+                          <MdDoneAll className="text-blue-500 text-sm" />
+                        ) : isDelivered ? (
+                          <MdDoneAll className="text-gray-400 text-sm" />
+                        ) : (
+                          <span className="text-sm">✓</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div
+                  className={`text-[10px] text-gray-500 mt-[2px] ${
+                    isUser ? 'text-right pr-1' : 'text-left pl-1'
+                  }`}
+                >
+                  {isUser ? 'You' : 'Admin'}
+                </div>
               </div>
             </div>
           );
         })}
-
         {typing && (
           <div className="text-xs italic text-gray-500">Admin is typing...</div>
         )}
@@ -224,6 +268,7 @@ const CustomerChatModal = ({ onClose }) => {
           <input
             type="file"
             hidden
+            accept="image/*"
             onChange={(e) => setAttachment(e.target.files[0])}
           />
         </label>

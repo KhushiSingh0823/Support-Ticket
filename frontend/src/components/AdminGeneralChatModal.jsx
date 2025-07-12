@@ -1,25 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FiX, FiSend } from 'react-icons/fi';
+import { FiX, FiPaperclip } from 'react-icons/fi';
+import { MdDoneAll } from 'react-icons/md';
+import { format, parseISO, isValid } from 'date-fns';
 import { io } from 'socket.io-client';
-import { useAuth } from '../context/AuthContext';
 import API from '../api/api';
-import { format } from 'date-fns';
+import { useAuth } from '../context/AuthContext';
 
 const socket = io('http://localhost:5000');
 
 const AdminGeneralChatModal = ({ onClose }) => {
   const { user, token } = useAuth();
   const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const [typing, setTyping] = useState(false);
+  const [input, setInput] = useState('');
+  const [replyTo, setReplyTo] = useState(null);
+  const [attachment, setAttachment] = useState(null);
   const [isUserTyping, setIsUserTyping] = useState(false);
+  const [typing, setTyping] = useState(false);
   const typingTimeoutRef = useRef(null);
-  const bottomRef = useRef(null);
+  const inputRef = useRef();
+  const bottomRef = useRef();
+  const messageRefs = useRef({});
 
   const sortMessages = (msgs) =>
-    [...msgs].sort(
-      (a, b) =>
-        new Date(a.timestamp || a.createdAt) - new Date(b.timestamp || b.createdAt)
+    [...msgs].sort((a, b) =>
+      new Date(a.timestamp || a.createdAt) - new Date(b.timestamp || b.createdAt)
     );
 
   useEffect(() => {
@@ -34,27 +38,24 @@ const AdminGeneralChatModal = ({ onClose }) => {
         const sorted = sortMessages(res.data);
         setMessages(sorted);
 
-        // 🔁 Mark unread messages as read
         const unread = sorted.filter(
           (msg) =>
             msg.sender._id !== user._id &&
-            !msg.readBy?.some((r) => r.user === user._id)
+            !msg.readBy?.some((r) => String(r.user) === String(user._id))
         );
 
         if (unread.length) {
-          await API.post(
-            '/chat/mark-read',
-            { chatType: 'general' },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
+          await API.post('/chat/mark-read', { chatType: 'general' }, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
 
-          unread.forEach((msg) => {
+          unread.forEach((msg) =>
             socket.emit('message-read', {
               chatType: 'general',
               messageId: msg._id,
               reader: { user: user._id, at: new Date() },
-            });
-          });
+            })
+          );
         }
       } catch (err) {
         console.error('Error fetching messages', err);
@@ -64,29 +65,31 @@ const AdminGeneralChatModal = ({ onClose }) => {
     fetchMessages();
 
     socket.on('receive-message', (msg) => {
-      setMessages((prev) => sortMessages([...prev, msg]));
-    });
+      setMessages((prev) => {
+        const exists = prev.some((m) => m._id === msg._id);
+        return exists ? prev : sortMessages([...prev, msg]);
+      });
 
-    socket.on('message-read', ({ messageId, reader }) => {
-      setMessages((prevMessages) =>
-        prevMessages.map((msg) =>
-          msg._id === messageId &&
-          !msg.readBy?.some((r) => String(r.user) === String(reader.user))
-            ? { ...msg, readBy: [...(msg.readBy || []), reader] }
-            : msg
-        )
+      const alreadyRead = msg.readBy?.some((rb) =>
+        String(rb.user?._id || rb.user) === String(user._id)
       );
+
+      if (!alreadyRead) {
+        socket.emit('message-read', {
+          chatType: 'general',
+          messageId: msg._id,
+          reader: { user: user._id, at: new Date() },
+        });
+
+        API.post('/chat/mark-read', { chatType: 'general' }).catch(() => {});
+      }
     });
 
-    socket.on('typing', (senderId) => {
-      if (senderId !== user._id) setIsUserTyping(true);
-    });
-
+    socket.on('typing', (status) => setIsUserTyping(status));
     socket.on('stop-typing', () => setIsUserTyping(false));
 
     return () => {
       socket.off('receive-message');
-      socket.off('message-read');
       socket.off('typing');
       socket.off('stop-typing');
     };
@@ -96,125 +99,196 @@ const AdminGeneralChatModal = ({ onClose }) => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleTyping = (e) => {
-    setNewMessage(e.target.value);
-    if (!typing) {
-      setTyping(true);
-      socket.emit('typing', { room: 'general', senderId: user._id });
+  const handleSend = async () => {
+    if (!input.trim() && !attachment) return;
+
+    const message = {
+      content: input,
+      chatType: 'general',
+      replyTo,
+      role: 'admin',
+      sender: user._id,
+    };
+
+    const sendMsg = async (msg) => {
+      try {
+        const res = await API.post('/chat/send', msg, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        socket.emit('send-message', res.data);
+        setInput('');
+        setAttachment(null);
+        setReplyTo(null);
+        socket.emit('stop-typing', { room: 'general' });
+        setTyping(false);
+        inputRef.current?.focus();
+      } catch (err) {
+        console.error('Send error:', err);
+      }
+    };
+
+    if (attachment) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        message.attachment = {
+          name: attachment.name,
+          base64: reader.result,
+        };
+        sendMsg(message);
+      };
+      reader.readAsDataURL(attachment);
+    } else {
+      sendMsg(message);
     }
+  };
+
+  const handleInputChange = (e) => {
+    setInput(e.target.value);
+    socket.emit('typing', true);
 
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
-      socket.emit('stop-typing', { room: 'general' });
+      socket.emit('typing', false);
       setTyping(false);
-    }, 1500);
+    }, 1000);
   };
 
-  const sendMessage = async () => {
-    if (!newMessage.trim()) return;
-
-    const msgData = {
-      content: newMessage,
-      chatType: 'general',
-    };
-
-    try {
-      const res = await API.post('/chat/send', msgData, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const savedMessage = res.data;
-      socket.emit('send-message', savedMessage);
-      setNewMessage('');
-      socket.emit('stop-typing', { room: 'general' });
-      setTyping(false);
-    } catch (error) {
-      console.error('❌ Error sending message:', error);
-    }
+  const getFormattedTime = (timestamp) => {
+    const date = typeof timestamp === 'string' ? parseISO(timestamp) : new Date(timestamp);
+    return isValid(date) ? format(date, 'p') : '—';
   };
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[95%] sm:w-[25rem] md:w-[28rem] max-h-[90vh] flex flex-col items-end">
-      <div className="w-full bg-white rounded-2xl shadow-xl border border-blue-200 flex flex-col overflow-hidden animate-slideUp">
-        {/* Header */}
-        <div className="bg-blue-900 text-white px-4 py-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold">General Query Chat</h3>
-          <button
-            onClick={onClose}
-            className="hover:bg-white/10 p-1.5 rounded-full transition"
-            aria-label="Close chat"
-          >
-            <FiX />
-          </button>
-        </div>
+    <div className="fixed bottom-4 right-4 w-full sm:w-[25rem] md:w-[28rem] max-h-[90vh] bg-white shadow-xl rounded-xl flex flex-col z-50 border border-gray-200">
+      {/* Header */}
+      <div className="flex justify-between items-center px-4 py-3 border-b bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-t-xl">
+        <h2 className="text-lg font-semibold">General Query Chat</h2>
+        <button onClick={onClose}>
+          <FiX className="hover:text-red-300" size={18} />
+        </button>
+      </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 bg-slate-50 space-y-3">
-          {messages.map((msg) => {
-            const senderId = msg.sender?._id || msg.sender;
-            const senderRole = msg.sender?.role?.toLowerCase?.() || msg.role?.toLowerCase?.() || 'user';
-            const isAdminMessage = senderRole === 'admin';
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 bg-[#ece5dd]">
+        {messages.map((msg, index) => {
+          const senderId = typeof msg.sender === 'string' ? msg.sender : msg.sender?._id;
+          const isYou = String(senderId) === String(user._id);
+          const isDelivered = !!msg._id;
+          const isRead = isYou && msg.readBy?.length > 1;
 
-            const alignmentClass = isAdminMessage ? 'justify-end' : 'justify-start';
-            const bubbleClass = isAdminMessage
-              ? 'bg-blue-600 text-white rounded-br-none ml-auto'
-              : 'bg-gray-200 text-gray-800 rounded-bl-none mr-auto';
-            const tailClass = isAdminMessage
-              ? 'right-[-6px] bg-blue-600 rotate-45 rounded-bl-sm'
-              : 'left-[-6px] bg-gray-200 rotate-45 rounded-br-sm';
-            const timeClass = isAdminMessage ? 'text-white/70' : 'text-gray-500';
-            const roleColor = isAdminMessage ? 'text-blue-500' : 'text-green-600';
+          const key = msg._id || `${index}-fallback`;
 
-            return (
-              <div key={msg._id} className={`flex ${alignmentClass}`}>
-                <div className={`relative px-4 py-2 max-w-[75%] rounded-2xl break-words shadow-md ${bubbleClass}`}>
-                  <div className={`text-xs font-semibold mb-1 ${roleColor}`}>
-                    {isAdminMessage ? 'Admin' : 'User'}
-                  </div>
-                  <div>{msg.content}</div>
-                  <div className="text-[10px] mt-1 flex justify-end items-center gap-1">
-                    <span className={timeClass}>
-                      {format(new Date(msg.timestamp || msg.createdAt), 'p')}
-                    </span>
-                    {isAdminMessage && (
-                      <span className="text-[12px]">
-                        {
-                          (msg.readBy?.filter((r) => String(r.user) !== String(user._id)).length || 0) > 0
-                            ? '✅✅'
-                            : '✅'
-                        }
-                      </span>
+          return (
+            <div
+              key={key}
+              ref={(el) => (messageRefs.current[msg._id] = el)}
+              className={`flex ${isYou ? 'justify-end' : 'justify-start'}`}
+            >
+              <div className="flex flex-col items-end max-w-[75%]">
+                <div
+                  className={`relative w-fit px-4 py-2 rounded-2xl text-sm break-words whitespace-pre-wrap shadow-sm ${
+                    isYou
+                      ? 'bg-blue-100 text-black rounded-br-none'
+                      : 'bg-white text-black rounded-bl-none'
+                  }`}
+                >
+                  {msg.replyTo?.content && (
+                    <div
+                      className="text-xs italic text-gray-500 border-l-2 border-gray-400 pl-2 mb-1 cursor-pointer"
+                      onClick={() => {
+                        const el = messageRefs.current[msg.replyTo._id];
+                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                      }}
+                    >
+                      ↪ {msg.replyTo.content.slice(0, 40)}...
+                    </div>
+                  )}
+                  <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+
+                  {msg.attachment?.base64 && (
+                    <img
+                      src={msg.attachment.base64}
+                      alt={msg.attachment.name}
+                      className="max-w-[200px] mt-2 rounded-lg shadow"
+                    />
+                  )}
+
+                  <div className="text-[10px] text-gray-500 mt-1 flex justify-end items-center gap-1">
+                    {getFormattedTime(msg.createdAt)}
+                    {isYou && (
+                      <>
+                        {isRead ? (
+                          <MdDoneAll className="text-blue-500 text-sm" />
+                        ) : isDelivered ? (
+                          <MdDoneAll className="text-gray-400 text-sm" />
+                        ) : (
+                          <span className="text-sm">✓</span>
+                        )}
+                      </>
                     )}
                   </div>
-                  <div className={`absolute bottom-0 w-3 h-3 ${tailClass}`} />
+                </div>
+                <div
+                  className={`text-[10px] text-gray-500 mt-[2px] ${
+                    isYou ? 'text-right pr-1' : 'text-left pl-1'
+                  }`}
+                >
+                  {isYou ? 'You' : 'User'}
                 </div>
               </div>
-            );
-          })}
-          {isUserTyping && (
-            <div className="text-xs italic text-gray-500 mt-2 pl-1">User is typing...</div>
-          )}
-          <div ref={bottomRef} />
-        </div>
+            </div>
+          );
+        })}
+        {isUserTyping && (
+          <div className="text-xs italic text-gray-500">User is typing...</div>
+        )}
+        <div ref={bottomRef} />
+      </div>
 
-        {/* Input */}
-        <div className="flex items-center gap-2 px-4 py-3 border-t border-blue-200 bg-white">
-          <input
-            type="text"
-            placeholder="Type a message..."
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            value={newMessage}
-            onChange={handleTyping}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          />
+      {/* Reply Preview */}
+      {replyTo && (
+        <div className="bg-indigo-50 text-indigo-800 text-sm px-3 py-1 flex items-center justify-between border-t">
+          <span>Replying to: {replyTo.content}</span>
           <button
-            onClick={sendMessage}
-            className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700"
-            aria-label="Send message"
+            onClick={() => setReplyTo(null)}
+            className="text-red-500 hover:text-red-700"
           >
-            <FiSend />
+            <FiX size={14} />
           </button>
         </div>
+      )}
+
+      {/* Input */}
+      <div className="flex items-center gap-2 px-3 py-2 border-t bg-white rounded-b-xl">
+        <label className="text-gray-600 cursor-pointer">
+          <FiPaperclip />
+          <input
+            type="file"
+            hidden
+            accept="image/*"
+            onChange={(e) => setAttachment(e.target.files[0])}
+          />
+        </label>
+        <input
+          ref={inputRef}
+          className="flex-1 border rounded-full px-4 py-2 text-sm focus:outline-none"
+          value={input}
+          onChange={handleInputChange}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
+          placeholder="Type a message..."
+        />
+        <button
+          onClick={handleSend}
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-full text-sm"
+        >
+          Send
+        </button>
       </div>
     </div>
   );

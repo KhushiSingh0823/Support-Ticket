@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+
 const {
   createTicket,
   getUserTickets,
@@ -17,7 +18,7 @@ const {
 } = require('../controllers/ticketController');
 
 const { protect, adminOnly } = require('../middlewares/authMiddleware');
-const upload = require('../middlewares/uploadMiddleware'); // ✅ Add this line
+const { upload, uploadToCloudinary } = require('../middlewares/uploadMiddleware'); // ✅ Correct import
 
 // ✅ User: Create new ticket
 router.post('/', protect, createTicket);
@@ -47,7 +48,13 @@ router.put('/:id/status', protect, updateTicketStatus);
 router.delete('/:id', protect, deleteTicket);
 
 // ✅ Reply to a ticket (with file upload)
-router.post('/:id/reply', protect, upload.single('file'), addReply); // ✅ FIXED
+router.post(
+  '/:id/reply',
+  protect,
+  upload.single('file'),       // ✅ multer handles file upload
+  uploadToCloudinary,          // ✅ cloudinary upload middleware
+  addReply                     // ✅ controller saves message + file URL
+);
 
 // ✅ Edit ticket message
 router.put('/:ticketId/messages/:messageId/edit', protect, editMessage);
